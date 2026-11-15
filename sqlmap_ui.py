@@ -92,6 +92,40 @@ def write_clipboard(text: str) -> bool:
     return False
 
 
+def destructive_reason(argv: list[str]) -> str | None:
+    """Return a reason string if the command could DELETE/destroy data, else None.
+
+    sqlmap only deletes data when the operator supplies destructive SQL or opens
+    an OS/SQL shell. Reading data (--dump, --passwords) is not destructive. This
+    guard enforces the "never delete data" rule for both form and custom runs.
+    """
+    import re
+    low_tokens = [a.lower() for a in argv]
+
+    # Flags that grant arbitrary command/SQL execution on the target.
+    for f in ("--os-shell", "--os-pwn", "--os-cmd", "--sql-shell"):
+        if any(t == f or t.startswith(f + "=") for t in low_tokens):
+            return (f"{f} can run arbitrary commands on the target, which could "
+                    "delete data")
+
+    def looks_destructive(sql: str) -> bool:
+        return bool(
+            re.search(r"\b(drop|delete|truncate|alter)\b", sql, re.I)
+            or re.search(r"\bupdate\b[\s\S]*\bset\b", sql, re.I)
+        )
+
+    # Inspect the value of any SQL-query flag (inline "=val" or next token).
+    for i, a in enumerate(argv):
+        al = a.lower()
+        if al.startswith("--sql-query") or al == "-q":
+            val = a.split("=", 1)[1] if "=" in a else (
+                argv[i + 1] if i + 1 < len(argv) else "")
+            if looks_destructive(val):
+                return ("the SQL query looks destructive (DROP/DELETE/TRUNCATE/"
+                        "ALTER/UPDATE)")
+    return None
+
+
 def resolve_sqlmap_cmd() -> list[str] | None:
     """Return the sqlmap command as a token list, or None if not found."""
     parts = shlex.split(SQLMAP_PATH, posix=(os.name != "nt"))
@@ -141,10 +175,9 @@ VALUE_FLAGS = {
     "proxy": "--proxy",
 }
 
-# One-click scan profiles. All presets are READ-ONLY RECON: they only detect
-# and enumerate metadata/structure. None of them dump table data (--dump) or
-# extract credential hashes (--passwords) — those remain available as manual
-# checkboxes / via the editable command for when you explicitly want them.
+# One-click scan profiles. These only READ from the target (detect, enumerate,
+# read password hashes); none of them modify or delete data. A separate guard
+# (destructive_reason) blocks any data-destroying command regardless of preset.
 PRESETS = {
     "quick": {
         "desc": "Just detect if the parameter is injectable (fast).",
@@ -156,16 +189,16 @@ PRESETS = {
         "checks": ["dbs", "current_user", "current_db", "is_dba"],
     },
     "enumerate": {
-        "desc": "Map out databases, tables and columns (no data dumped).",
+        "desc": "Map out databases, tables and columns.",
         "level": "2", "risk": "1",
         "checks": ["dbs", "tables", "columns"],
     },
     "full": {
-        "desc": "Full recon: databases, tables, columns + user/DBA info. "
-                "Still no data dump.",
+        "desc": "Full recon: databases, tables, columns, user/DBA info, and "
+                "password hashes for cracking. Never deletes data.",
         "level": "2", "risk": "1",
         "checks": ["dbs", "tables", "columns",
-                   "current_user", "current_db", "is_dba"],
+                   "current_user", "current_db", "is_dba", "passwords"],
     },
 }
 
@@ -243,8 +276,8 @@ class SqlmapUI(App):
                 yield Button("Standard", id="p_standard")
                 yield Button("Enum", id="p_enumerate")
                 yield Button("Full", id="p_full")
-            yield Static("Presets are read-only recon — they never dump data.",
-                         classes="hint")
+            yield Static("Presets only read data; the tool blocks anything "
+                         "that could delete data.", classes="hint")
 
             yield Label("POST data (optional)")
             yield Input(placeholder="id=1&name=test", id="data")
@@ -518,6 +551,14 @@ class SqlmapUI(App):
             self._log(f"[red][b]Error:[/b] {exc}[/]", f"Error: {exc}")
             if not self._custom_mode and ("URL" in str(exc) or "target" in str(exc)):
                 self.query_one("#url", Input).focus()
+            return
+
+        reason = destructive_reason(argv)
+        if reason:
+            self._cleanup_request_file()
+            self._log(f"[red][b]Blocked:[/b] {reason}.[/] This tool refuses "
+                      "actions that can delete data. Remove it and try again.",
+                      f"Blocked: {reason}.")
             return
 
         self._save_config()

@@ -6,8 +6,8 @@ form, runs sqlmap for you, and streams its live, colorized output — no browser
 no web server. Runs in any terminal (or as a standalone `.exe`).
 
 **Features**
-- One-click **scan presets** (Quick / Standard / Enum / Full) — read-only recon,
-  they never dump data
+- One-click **scan presets** (Quick / Standard / Enum / Full)
+- **Never deletes data** — blocks destructive SQL and OS/SQL shells
 - **Edit the full command** by hand before running — total control
 - **Live command preview** — see the exact sqlmap command as you change options
 - Paste a **raw HTTP request** (Burp/ZAP) or load it from a file (`-r`)
@@ -72,13 +72,19 @@ SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
 4. Press **Ctrl+R** (or click **▶ Run**). Output streams on the right; the
    status bar shows a running timer and the final exit code.
 
-### Presets are read-only
+### Never deletes data
 
-The four presets only **detect** injection and **enumerate** metadata and
-structure (databases, tables, columns, current user/DB, DBA status). **None of
-them dump table data (`--dump`) or extract password hashes (`--passwords`)** —
-those stay available as manual checkboxes (and via the editable command) for
-when you explicitly intend to use them. sqlmap never deletes data.
+The tool refuses to run any command — from the form **or** the editable command
+box — that could **delete or destroy data**. Blocked actions:
+
+- `--os-shell`, `--os-cmd`, `--os-pwn`, `--sql-shell` (arbitrary execution)
+- a `--sql-query` containing `DROP`, `DELETE`, `TRUNCATE`, `ALTER`, or
+  `UPDATE … SET`
+
+Reading data is allowed: the presets enumerate structure and can read password
+hashes (for cracking), and `--dump` remains available as a manual checkbox.
+sqlmap never deletes data on its own; this guard stops you from supplying a
+statement that would.
 
 ### Full manual control — edit the command
 
