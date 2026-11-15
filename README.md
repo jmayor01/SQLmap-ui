@@ -78,11 +78,12 @@ expects), passed as `-r`, and deleted automatically when the scan ends.
 `cmd.exe` console, which doesn't always hand pasted text to the app. Two
 reliable fixes:
 
-- Click the **📋 Paste from clipboard** button (or press **Ctrl+B**). This reads
-  your clipboard directly (via PowerShell on Windows) and drops it into the
-  request box, so it works no matter how your terminal handles `Ctrl+V`.
-- Or save the request to a `.txt` file and use the **"…or load the request from
-  a saved file"** field.
+- **Press `Ctrl+B` to paste into whatever field your cursor is in** — Target
+  URL, Cookie, Proxy, the request box, any of them. It reads your clipboard
+  directly (via PowerShell on Windows), so it works no matter how your terminal
+  handles `Ctrl+V`. (The 📋 button next to the request box pastes into that box.)
+- Or save a request to a `.txt` file and use the **"…or load the request from a
+  saved file"** field.
 
 Running in **Windows Terminal** (not `cmd.exe`) also makes normal `Ctrl+V` /
 right-click paste work.
@@ -103,7 +104,7 @@ above the log so you can see — and learn — the flags being used.
 |----------|---------------------------------|
 | `Ctrl+R` | Run scan                        |
 | `Ctrl+S` | Stop scan                       |
-| `Ctrl+B` | Paste request from clipboard    |
+| `Ctrl+B` | Paste clipboard into focused field |
 | `Ctrl+E` | Copy output to clipboard        |
 | `Ctrl+O` | Save output to a file           |
 | `Ctrl+L` | Clear log                       |

@@ -534,18 +534,38 @@ class SqlmapUI(App):
 
     # ----------------------------------------------------------- clipboard
     def action_paste_clipboard(self) -> None:
+        """Paste the clipboard into whichever field has focus.
+
+        Works for any text Input (Target URL, Cookie, Proxy, …) and the raw
+        request box. Bypasses terminal paste, so it works even where the
+        terminal's own Ctrl+V doesn't reach the app.
+        """
         text = read_clipboard()
         if not text:
-            self._log("[red]Couldn't read the clipboard.[/] Copy the request "
-                      "again, or use the request-file field.", None)
+            self._log("[red]Couldn't read the clipboard.[/] Copy the text again, "
+                      "then click into a field and press Ctrl+B.", None)
             return
-        ta = self.query_one("#request", TextArea)
-        ta.text = text.rstrip("\r\n")
-        self.query_one("#req_box", Collapsible).collapsed = False
-        ta.focus()
+        focused = self.focused
+
+        if isinstance(focused, TextArea):
+            focused.insert(text)
+            where = "request box"
+        elif isinstance(focused, Input):
+            # Single-line field: collapse any newlines so the value stays valid.
+            focused.insert_text_at_cursor(" ".join(text.split()))
+            where = f"{focused.id or 'input'} field"
+        else:
+            # Nothing focused (e.g. the paste button was clicked): default to
+            # the request box, which is the common case for pasting.
+            ta = self.query_one("#request", TextArea)
+            ta.text = text.rstrip("\r\n")
+            self.query_one("#req_box", Collapsible).collapsed = False
+            ta.focus()
+            where = "request box"
+
         self._update_preview()
-        self._log(f"[green]Pasted {len(ta.text)} characters into the request box.[/]",
-                  None)
+        self._log(f"[green]Pasted {len(text.strip())} characters into the "
+                  f"{where}.[/]", None)
 
     def action_copy_output(self) -> None:
         text = "\n".join(self._raw_lines)
