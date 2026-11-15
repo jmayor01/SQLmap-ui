@@ -6,7 +6,9 @@ form, runs sqlmap for you, and streams its live, colorized output — no browser
 no web server. Runs in any terminal (or as a standalone `.exe`).
 
 **Features**
-- One-click **scan presets** (Quick / Standard / Enumerate / Dump)
+- One-click **scan presets** (Quick / Standard / Enum / Full) — read-only recon,
+  they never dump data
+- **Edit the full command** by hand before running — total control
 - **Live command preview** — see the exact sqlmap command as you change options
 - Paste a **raw HTTP request** (Burp/ZAP) or load it from a file (`-r`)
 - **Clipboard paste & copy** that work even where terminal `Ctrl+V` doesn't
@@ -64,11 +66,28 @@ SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
    ZAP, or your browser's dev tools. When a request is pasted it takes
    precedence over the URL field; mark the injection point with `*` if you want
    to target a specific parameter.
-2. Click a **preset** (Quick / Standard / Enum / Dump) to set sensible options,
+2. Click a **preset** (Quick / Standard / Enum / Full) to set sensible options,
    or tick the **actions** you want and set level/risk/DBMS yourself.
 3. Watch the **command preview** at the top of the output pane update live.
 4. Press **Ctrl+R** (or click **▶ Run**). Output streams on the right; the
    status bar shows a running timer and the final exit code.
+
+### Presets are read-only
+
+The four presets only **detect** injection and **enumerate** metadata and
+structure (databases, tables, columns, current user/DB, DBA status). **None of
+them dump table data (`--dump`) or extract password hashes (`--passwords`)** —
+those stay available as manual checkboxes (and via the editable command) for
+when you explicitly intend to use them. sqlmap never deletes data.
+
+### Full manual control — edit the command
+
+Click **✏ Edit command** (bottom bar) to turn the command preview into an
+editable box. Whatever you type there is run **exactly as-is** when you press
+**Ctrl+R**, so you can add, remove, or rewrite any flag the form doesn't expose.
+Click **✖ Use form** to switch back to building from the form. (If you'd pasted
+a raw request, the placeholder `<pasted-request.txt>` in the command is swapped
+for the real temp file at run time.)
 
 Your inputs are remembered between runs (stored in `~/.sqlmap_ui.json`). The
 pasted request is saved to a temporary file (with the CRLF line endings sqlmap

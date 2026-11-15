@@ -141,7 +141,10 @@ VALUE_FLAGS = {
     "proxy": "--proxy",
 }
 
-# One-click scan profiles.
+# One-click scan profiles. All presets are READ-ONLY RECON: they only detect
+# and enumerate metadata/structure. None of them dump table data (--dump) or
+# extract credential hashes (--passwords) — those remain available as manual
+# checkboxes / via the editable command for when you explicitly want them.
 PRESETS = {
     "quick": {
         "desc": "Just detect if the parameter is injectable (fast).",
@@ -153,14 +156,16 @@ PRESETS = {
         "checks": ["dbs", "current_user", "current_db", "is_dba"],
     },
     "enumerate": {
-        "desc": "Map out databases, tables and columns.",
+        "desc": "Map out databases, tables and columns (no data dumped).",
         "level": "2", "risk": "1",
         "checks": ["dbs", "tables", "columns"],
     },
-    "dump": {
-        "desc": "Enumerate and dump table data. Slower, noisier.",
+    "full": {
+        "desc": "Full recon: databases, tables, columns + user/DBA info. "
+                "Still no data dump.",
         "level": "2", "risk": "1",
-        "checks": ["dbs", "tables", "columns", "dump"],
+        "checks": ["dbs", "tables", "columns",
+                   "current_user", "current_db", "is_dba"],
     },
 }
 
@@ -189,6 +194,7 @@ class SqlmapUI(App):
         height: auto; min-height: 1; padding: 0 1; background: $panel;
         color: $text-muted; border-bottom: solid $primary;
     }
+    #cmd_edit { display: none; margin: 0 1; border: tall $accent; }
     #log { padding: 0 1; }
     #status { height: 1; padding: 0 1; background: $panel-darken-1; }
     #buttons { height: auto; padding: 1 1; align: left middle; }
@@ -213,6 +219,8 @@ class SqlmapUI(App):
         self._req_file: str | None = None
         self._raw_lines: list[str] = []
         self._scan_start: float | None = None
+        self._custom_mode = False
+        self._preview_cmd = ""
 
     # ---------------------------------------------------------------- layout
     def compose(self) -> ComposeResult:
@@ -234,7 +242,9 @@ class SqlmapUI(App):
                 yield Button("Quick", id="p_quick")
                 yield Button("Standard", id="p_standard")
                 yield Button("Enum", id="p_enumerate")
-                yield Button("Dump", id="p_dump")
+                yield Button("Full", id="p_full")
+            yield Static("Presets are read-only recon — they never dump data.",
+                         classes="hint")
 
             yield Label("POST data (optional)")
             yield Input(placeholder="id=1&name=test", id="data")
@@ -281,12 +291,15 @@ class SqlmapUI(App):
 
         with Vertical(id="main"):
             yield Static("", id="cmdline")
+            yield Input(placeholder="full sqlmap command — edit freely, then Run",
+                        id="cmd_edit")
             yield RichLog(id="log", highlight=True, markup=True, wrap=True,
                           auto_scroll=True)
             yield Static("", id="status")
             with Horizontal(id="buttons"):
                 yield Button("▶ Run  (Ctrl+R)", id="run", variant="primary")
                 yield Button("■ Stop", id="stop", variant="error", disabled=True)
+                yield Button("✏ Edit command", id="edit_cmd")
                 yield Button("Copy output", id="copy")
                 yield Button("Save output", id="save")
                 yield Button("Clear", id="clear")
@@ -307,6 +320,7 @@ class SqlmapUI(App):
                       "Set the [b]SQLMAP_PATH[/b] environment variable to your "
                       "sqlmap binary and restart.")
             self.query_one("#run", Button).disabled = True
+        self.query_one("#cmd_edit", Input).display = False
         self.set_interval(0.5, self._tick)
         self._update_preview()
         self._update_status()
@@ -405,9 +419,14 @@ class SqlmapUI(App):
         try:
             argv = base + self._target_args(for_preview=True)
             self._append_options(argv)
-            shown = " ".join(shlex.quote(a) for a in argv)
-            self.query_one("#cmdline", Static).update(f"[dim]$ {shown}[/]")
+            self._preview_cmd = " ".join(shlex.quote(a) for a in argv)
         except (ValueError, RuntimeError):
+            self._preview_cmd = ""
+        if self._custom_mode:
+            return  # user is hand-editing; leave the command bar/field alone
+        if self._preview_cmd:
+            self.query_one("#cmdline", Static).update(f"[dim]$ {self._preview_cmd}[/]")
+        else:
             self.query_one("#cmdline", Static).update(
                 "[dim]$ (set a target to preview the sqlmap command)[/]")
 
@@ -443,15 +462,61 @@ class SqlmapUI(App):
         self.query_one("#log", RichLog).write(markup)
         self._raw_lines.append(plain if plain is not None else markup)
 
+    def _custom_argv(self) -> list[str]:
+        """Parse the hand-edited command box into an argv list."""
+        raw = self.query_one("#cmd_edit", Input).value.strip()
+        if not raw:
+            raise ValueError("The command box is empty.")
+        try:
+            argv = shlex.split(raw, posix=(os.name != "nt"))
+        except ValueError as exc:
+            raise ValueError(f"Could not parse the command: {exc}")
+        if not argv:
+            raise ValueError("The command box is empty.")
+        # If the command still has the pasted-request placeholder, materialise
+        # the pasted request into a real temp file and substitute it in.
+        if "<pasted-request.txt>" in argv:
+            req = self.query_one("#request", TextArea).text.strip()
+            if not req:
+                raise ValueError("Command references <pasted-request.txt> but "
+                                 "the request box is empty.")
+            self._req_file = self._write_request_file(req)
+            argv = [self._req_file if a == "<pasted-request.txt>" else a
+                    for a in argv]
+        return argv
+
+    def action_edit_command(self) -> None:
+        """Toggle hand-editing of the full sqlmap command."""
+        box = self.query_one("#cmd_edit", Input)
+        btn = self.query_one("#edit_cmd", Button)
+        if not self._custom_mode:
+            self._custom_mode = True
+            # Seed the editable box with the command the form would run.
+            box.value = self._preview_cmd or (
+                " ".join(resolve_sqlmap_cmd() or ["sqlmap"]) + " -u  --batch")
+            box.display = True
+            box.focus()
+            btn.label = "✖ Use form"
+            self.query_one("#cmdline", Static).update(
+                "[yellow]✏ custom command mode — the box below runs as-is.[/]")
+            self._log("[magenta]Custom command mode on.[/] Edit the command box "
+                      "and press Ctrl+R. Click '✖ Use form' to go back.", None)
+        else:
+            self._custom_mode = False
+            box.display = False
+            btn.label = "✏ Edit command"
+            self._update_preview()
+            self._log("[magenta]Back to form mode.[/]", None)
+
     def action_run(self) -> None:
         if self.proc and self.proc.poll() is None:
             return
         try:
-            argv = self.build_argv()
+            argv = self._custom_argv() if self._custom_mode else self.build_argv()
         except (ValueError, RuntimeError) as exc:
             self._cleanup_request_file()
             self._log(f"[red][b]Error:[/b] {exc}[/]", f"Error: {exc}")
-            if "URL" in str(exc) or "target" in str(exc):
+            if not self._custom_mode and ("URL" in str(exc) or "target" in str(exc)):
                 self.query_one("#url", Input).focus()
             return
 
@@ -613,6 +678,8 @@ class SqlmapUI(App):
         self.query_one("#level", Input).value = p["level"]
         self.query_one("#risk", Input).value = p["risk"]
         self._update_preview()
+        if self._custom_mode:  # keep the editable command box in sync
+            self.query_one("#cmd_edit", Input).value = self._preview_cmd
         self._log(f"[magenta]Preset '{name}':[/] {p['desc']}", None)
 
     # ----------------------------------------------------------- config I/O
@@ -675,6 +742,9 @@ class SqlmapUI(App):
     @on(Button.Pressed, "#paste_clip")
     def _b_paste(self) -> None: self.action_paste_clipboard()
 
+    @on(Button.Pressed, "#edit_cmd")
+    def _b_edit(self) -> None: self.action_edit_command()
+
     @on(Button.Pressed, "#p_quick")
     def _b_p_quick(self) -> None: self.apply_preset("quick")
 
@@ -684,8 +754,8 @@ class SqlmapUI(App):
     @on(Button.Pressed, "#p_enumerate")
     def _b_p_enum(self) -> None: self.apply_preset("enumerate")
 
-    @on(Button.Pressed, "#p_dump")
-    def _b_p_dump(self) -> None: self.apply_preset("dump")
+    @on(Button.Pressed, "#p_full")
+    def _b_p_full(self) -> None: self.apply_preset("full")
 
 
 def colorize(line: str) -> str:
