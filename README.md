@@ -5,6 +5,15 @@ A keyboard-friendly **terminal UI** for a locally installed
 form, runs sqlmap for you, and streams its live, colorized output — no browser,
 no web server. Runs in any terminal (or as a standalone `.exe`).
 
+**Features**
+- One-click **scan presets** (Quick / Standard / Enumerate / Dump)
+- **Live command preview** — see the exact sqlmap command as you change options
+- Paste a **raw HTTP request** (Burp/ZAP) or load it from a file (`-r`)
+- **Clipboard paste & copy** that work even where terminal `Ctrl+V` doesn't
+- **Save output** to a timestamped log file
+- **Remembers your settings** between runs
+- Full **`sqlmap -hh`** option list on tap (any flag usable via *Extra options*)
+
 > ⚠️ **For authorized security testing only.** Only run sqlmap against systems
 > you own or have explicit written permission to test.
 
@@ -55,12 +64,15 @@ SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
    ZAP, or your browser's dev tools. When a request is pasted it takes
    precedence over the URL field; mark the injection point with `*` if you want
    to target a specific parameter.
-2. Optionally set POST data, a cookie, level/risk, threads, or a DBMS.
-3. Tick the **actions** you want (enumerate databases, dump tables, etc.).
-4. Press **Ctrl+R** (or click **Run scan**).
+2. Click a **preset** (Quick / Standard / Enum / Dump) to set sensible options,
+   or tick the **actions** you want and set level/risk/DBMS yourself.
+3. Watch the **command preview** at the top of the output pane update live.
+4. Press **Ctrl+R** (or click **▶ Run**). Output streams on the right; the
+   status bar shows a running timer and the final exit code.
 
-The pasted request is saved to a temporary file (with the CRLF line endings
-sqlmap expects), passed as `-r`, and deleted automatically when the scan ends.
+Your inputs are remembered between runs (stored in `~/.sqlmap_ui.json`). The
+pasted request is saved to a temporary file (with the CRLF line endings sqlmap
+expects), passed as `-r`, and deleted automatically when the scan ends.
 
 **Paste not working?** Terminal paste is finicky — especially in the legacy
 `cmd.exe` console, which doesn't always hand pasted text to the app. Two
@@ -87,14 +99,16 @@ above the log so you can see — and learn — the flags being used.
 
 ### Keyboard shortcuts
 
-| Key      | Action                         |
-|----------|--------------------------------|
-| `Ctrl+R` | Run scan                       |
-| `Ctrl+S` | Stop scan                      |
-| `Ctrl+B` | Paste request from clipboard   |
-| `Ctrl+L` | Clear log                      |
-| `F1`     | Show all sqlmap options (`-hh`)|
-| `Ctrl+Q` | Quit                           |
+| Key      | Action                          |
+|----------|---------------------------------|
+| `Ctrl+R` | Run scan                        |
+| `Ctrl+S` | Stop scan                       |
+| `Ctrl+B` | Paste request from clipboard    |
+| `Ctrl+E` | Copy output to clipboard        |
+| `Ctrl+O` | Save output to a file           |
+| `Ctrl+L` | Clear log                       |
+| `F1`     | Show all sqlmap options (`-hh`) |
+| `Ctrl+Q` | Quit                            |
 
 Anything the form doesn't cover can be typed into **Extra raw options** (e.g.
 `--tamper=space2comment --random-agent`); it's passed straight to sqlmap.
