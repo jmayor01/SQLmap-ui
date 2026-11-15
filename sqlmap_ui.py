@@ -42,6 +42,35 @@ from textual.widgets import (
 SQLMAP_PATH = os.environ.get("SQLMAP_PATH", "sqlmap")
 
 
+def read_clipboard() -> str | None:
+    """Read the OS clipboard as text, without any third-party dependency.
+
+    Returns the clipboard text, or None if it couldn't be read. Works on
+    Windows (PowerShell), macOS (pbpaste), and Linux (xclip/xsel/wl-paste).
+    This is our fallback for terminals whose own paste (Ctrl+V) doesn't
+    reach the app — most notably the legacy Windows cmd.exe console.
+    """
+    if os.name == "nt":
+        candidates = [
+            ["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+        ]
+    else:
+        candidates = [
+            ["pbpaste"],
+            ["wl-paste", "--no-newline"],
+            ["xclip", "-selection", "clipboard", "-o"],
+            ["xsel", "--clipboard", "--output"],
+        ]
+    for cmd in candidates:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            continue
+        if out.returncode == 0 and out.stdout:
+            return out.stdout
+    return None
+
+
 def resolve_sqlmap_cmd() -> list[str] | None:
     """Return the sqlmap command as a token list, or None if not found."""
     parts = shlex.split(SQLMAP_PATH, posix=(os.name != "nt"))
@@ -127,7 +156,9 @@ class SqlmapUI(App):
     BINDINGS = [
         ("ctrl+r", "run", "Run scan"),
         ("ctrl+s", "stop", "Stop"),
+        ("ctrl+b", "paste_clipboard", "Paste request"),
         ("ctrl+l", "clear", "Clear log"),
+        ("f1", "help", "sqlmap options"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -148,6 +179,7 @@ class SqlmapUI(App):
                 yield Label("Paste a full request (e.g. from Burp). "
                             "Overrides the URL above.")
                 yield TextArea(id="request", language=None, soft_wrap=True)
+                yield Button("📋 Paste from clipboard", id="paste_clip")
                 yield Label("…or load the request from a saved file:")
                 yield Input(placeholder=r"C:\path\to\request.txt", id="req_path")
 
@@ -199,6 +231,7 @@ class SqlmapUI(App):
                 yield Button("Run scan", id="run", variant="primary")
                 yield Button("Stop", id="stop", variant="error", disabled=True)
                 yield Button("Clear", id="clear")
+                yield Button("sqlmap options", id="help")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -377,6 +410,40 @@ class SqlmapUI(App):
     def action_clear(self) -> None:
         self.query_one("#log", RichLog).clear()
 
+    def action_paste_clipboard(self) -> None:
+        """Read the OS clipboard and drop it into the request box.
+
+        This bypasses terminal paste entirely, so it works even where the
+        terminal's own Ctrl+V doesn't reach the app (e.g. legacy cmd.exe).
+        """
+        log = self.query_one("#log", RichLog)
+        text = read_clipboard()
+        if not text:
+            log.write("[red]Couldn't read the clipboard.[/] Copy the request "
+                      "again, or use the request-file field instead.")
+            return
+        ta = self.query_one("#request", TextArea)
+        ta.text = text.rstrip("\r\n")
+        self.query_one("#req_box", Collapsible).collapsed = False
+        ta.focus()
+        log.write(f"[green]Pasted {len(ta.text)} characters from clipboard "
+                  "into the request box.[/]")
+
+    def action_help(self) -> None:
+        """Show sqlmap's full option list (sqlmap -hh) in the output pane."""
+        if self.proc and self.proc.poll() is None:
+            return
+        cmd = resolve_sqlmap_cmd()
+        if cmd is None:
+            self.query_one("#log", RichLog).write("[red]sqlmap not found.[/]")
+            return
+        self.query_one("#log", RichLog).write(
+            "\n[cyan]▶ sqlmap -hh (full option list)[/]\n")
+        self.query_one("#run", Button).disabled = True
+        self.query_one("#stop", Button).disabled = False
+        self._stop = False
+        self.run_sqlmap(list(cmd) + ["-hh"])
+
     # --------------------------------------------------------------- buttons
     @on(Button.Pressed, "#run")
     def _btn_run(self) -> None:
@@ -389,6 +456,14 @@ class SqlmapUI(App):
     @on(Button.Pressed, "#clear")
     def _btn_clear(self) -> None:
         self.action_clear()
+
+    @on(Button.Pressed, "#paste_clip")
+    def _btn_paste(self) -> None:
+        self.action_paste_clipboard()
+
+    @on(Button.Pressed, "#help")
+    def _btn_help(self) -> None:
+        self.action_help()
 
 
 def colorize(line: str) -> str:

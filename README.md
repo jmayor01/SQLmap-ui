@@ -62,23 +62,39 @@ SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
 The pasted request is saved to a temporary file (with the CRLF line endings
 sqlmap expects), passed as `-r`, and deleted automatically when the scan ends.
 
-**Paste not working?** Terminal paste is finicky — run the app in **Windows
-Terminal** (not the legacy `cmd.exe` console), click inside the box first, then
-paste with **Ctrl+V** or **right-click**. If it still won't cooperate, save the
-request to a `.txt` file and use the **"…or load the request from a saved
-file"** field instead — that avoids terminal paste entirely.
+**Paste not working?** Terminal paste is finicky — especially in the legacy
+`cmd.exe` console, which doesn't always hand pasted text to the app. Two
+reliable fixes:
+
+- Click the **📋 Paste from clipboard** button (or press **Ctrl+B**). This reads
+  your clipboard directly (via PowerShell on Windows) and drops it into the
+  request box, so it works no matter how your terminal handles `Ctrl+V`.
+- Or save the request to a `.txt` file and use the **"…or load the request from
+  a saved file"** field.
+
+Running in **Windows Terminal** (not `cmd.exe`) also makes normal `Ctrl+V` /
+right-click paste work.
+
+## All sqlmap options
+
+The form covers the common actions, but **any** sqlmap flag works — type it into
+the **Extra raw options** box (e.g. `--tamper=space2comment --technique=BEUST
+--flush-session`). Press **F1** (or the **sqlmap options** button) to print
+sqlmap's complete option list (`sqlmap -hh`) into the output pane for reference.
 
 Output streams in the right-hand pane as sqlmap runs. The exact command is shown
 above the log so you can see — and learn — the flags being used.
 
 ### Keyboard shortcuts
 
-| Key      | Action      |
-|----------|-------------|
-| `Ctrl+R` | Run scan    |
-| `Ctrl+S` | Stop scan   |
-| `Ctrl+L` | Clear log   |
-| `Ctrl+Q` | Quit        |
+| Key      | Action                         |
+|----------|--------------------------------|
+| `Ctrl+R` | Run scan                       |
+| `Ctrl+S` | Stop scan                      |
+| `Ctrl+B` | Paste request from clipboard   |
+| `Ctrl+L` | Clear log                      |
+| `F1`     | Show all sqlmap options (`-hh`)|
+| `Ctrl+Q` | Quit                           |
 
 Anything the form doesn't cover can be typed into **Extra raw options** (e.g.
 `--tamper=space2comment --random-agent`); it's passed straight to sqlmap.
