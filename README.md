@@ -16,34 +16,51 @@ no web server. Runs in any terminal (or as a standalone `.exe`).
 - [sqlmap](https://github.com/sqlmapproject/sqlmap) installed (you already have it)
 - `textual` (the only Python dependency)
 
-## Install & run
+## Install & run (Windows)
 
-```bash
+```cmd
 pip install -r requirements.txt
 python sqlmap_ui.py
 ```
 
+Or just double-click / run **`run.bat`**, which installs the dependency on first
+launch and starts the UI.
+
 If `sqlmap` is on your `PATH`, the UI finds it automatically. Otherwise point it
 at your install with the `SQLMAP_PATH` environment variable:
 
-```bash
-# Linux / macOS
-SQLMAP_PATH=/usr/bin/sqlmap python sqlmap_ui.py
-SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python sqlmap_ui.py
+```cmd
+:: if you installed sqlmap from source (sqlmap.py)
+set SQLMAP_PATH=python C:\tools\sqlmap\sqlmap.py
+python sqlmap_ui.py
+
+:: if you installed sqlmap via pip (sqlmap.exe on PATH) nothing extra is needed
 ```
 
-```cmd
-:: Windows
-set SQLMAP_PATH=C:\tools\sqlmap\sqlmap.py
-python sqlmap_ui.py
+> Tip: run it in **Windows Terminal** or PowerShell for the best colors; the
+> classic `cmd.exe` console works too.
+
+### Linux / macOS
+
+```bash
+pip install -r requirements.txt
+python3 sqlmap_ui.py          # or: ./run.sh
+SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
 ```
 
 ## Using it
 
-1. Enter the **target URL** (e.g. `http://host/page.php?id=1`).
+1. Enter the **target URL** (e.g. `http://host/page.php?id=1`) **— or** expand
+   **"Paste raw HTTP request (-r)"** and paste a full request copied from Burp,
+   ZAP, or your browser's dev tools. When a request is pasted it takes
+   precedence over the URL field; mark the injection point with `*` if you want
+   to target a specific parameter.
 2. Optionally set POST data, a cookie, level/risk, threads, or a DBMS.
 3. Tick the **actions** you want (enumerate databases, dump tables, etc.).
 4. Press **Ctrl+R** (or click **Run scan**).
+
+The pasted request is saved to a temporary file (with the CRLF line endings
+sqlmap expects), passed as `-r`, and deleted automatically when the scan ends.
 
 Output streams in the right-hand pane as sqlmap runs. The exact command is shown
 above the log so you can see — and learn — the flags being used.

@@ -19,6 +19,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 
 from textual import on, work
@@ -27,6 +28,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
     Checkbox,
+    Collapsible,
     Footer,
     Header,
     Input,
@@ -34,6 +36,7 @@ from textual.widgets import (
     RichLog,
     Select,
     Static,
+    TextArea,
 )
 
 SQLMAP_PATH = os.environ.get("SQLMAP_PATH", "sqlmap")
@@ -132,6 +135,7 @@ class SqlmapUI(App):
         super().__init__()
         self.proc: subprocess.Popen | None = None
         self._stop = False
+        self._req_file: str | None = None
 
     # ---------------------------------------------------------------- layout
     def compose(self) -> ComposeResult:
@@ -139,6 +143,12 @@ class SqlmapUI(App):
         with VerticalScroll(id="sidebar"):
             yield Label("Target URL")
             yield Input(placeholder="http://host/page.php?id=1", id="url")
+
+            with Collapsible(title="Paste raw HTTP request (-r)", id="req_box"):
+                yield Label("Paste a full request (e.g. from Burp). "
+                            "Overrides the URL above.")
+                yield TextArea(id="request", language=None, soft_wrap=True)
+
             yield Label("POST data (optional)")
             yield Input(placeholder="id=1&name=test", id="data")
             yield Label("Cookie (optional)")
@@ -210,18 +220,44 @@ class SqlmapUI(App):
     def _get(self, wid: str) -> str:
         return self.query_one(f"#{wid}", Input).value.strip()
 
+    @staticmethod
+    def _write_request_file(text: str) -> str:
+        # Normalise to CRLF line endings, which is what raw HTTP requests use
+        # and what sqlmap's -r parser expects.
+        normalised = text.replace("\r\n", "\n").replace("\n", "\r\n")
+        fd, path = tempfile.mkstemp(prefix="sqlmapui_req_", suffix=".txt")
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(normalised)
+        return path
+
+    def _cleanup_request_file(self) -> None:
+        if self._req_file:
+            try:
+                os.unlink(self._req_file)
+            except OSError:
+                pass
+            self._req_file = None
+
     def build_argv(self) -> list[str]:
         cmd = resolve_sqlmap_cmd()
         if cmd is None:
             raise RuntimeError("sqlmap executable not found.")
 
-        url = self._get("url")
-        if not url:
-            raise ValueError("A target URL is required.")
-        if any(c in url for c in "\n\r\x00"):
-            raise ValueError("Invalid characters in URL.")
+        argv = list(cmd)
 
-        argv = list(cmd) + ["-u", url]
+        # A pasted raw HTTP request (-r) takes precedence over the URL field.
+        raw_request = self.query_one("#request", TextArea).text.strip()
+        if raw_request:
+            self._req_file = self._write_request_file(raw_request)
+            argv += ["-r", self._req_file]
+        else:
+            url = self._get("url")
+            if not url:
+                raise ValueError(
+                    "Provide a target URL, or paste a raw HTTP request.")
+            if any(c in url for c in "\n\r\x00"):
+                raise ValueError("Invalid characters in URL.")
+            argv += ["-u", url]
 
         for key, flag in VALUE_FLAGS.items():
             if key == "extra":
@@ -262,6 +298,7 @@ class SqlmapUI(App):
         try:
             argv = self.build_argv()
         except (ValueError, RuntimeError) as exc:
+            self._cleanup_request_file()
             log.write(f"[red][b]Error:[/b] {exc}[/]")
             return
 
@@ -312,6 +349,7 @@ class SqlmapUI(App):
         self.query_one("#run", Button).disabled = not bool(resolve_sqlmap_cmd())
         self.query_one("#stop", Button).disabled = True
         self.proc = None
+        self._cleanup_request_file()
 
     def action_stop(self) -> None:
         if not (self.proc and self.proc.poll() is None):
