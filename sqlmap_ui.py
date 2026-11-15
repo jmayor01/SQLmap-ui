@@ -148,6 +148,8 @@ class SqlmapUI(App):
                 yield Label("Paste a full request (e.g. from Burp). "
                             "Overrides the URL above.")
                 yield TextArea(id="request", language=None, soft_wrap=True)
+                yield Label("…or load the request from a saved file:")
+                yield Input(placeholder=r"C:\path\to\request.txt", id="req_path")
 
             yield Label("POST data (optional)")
             yield Input(placeholder="id=1&name=test", id="data")
@@ -245,16 +247,22 @@ class SqlmapUI(App):
 
         argv = list(cmd)
 
-        # A pasted raw HTTP request (-r) takes precedence over the URL field.
+        # Request source precedence: pasted request > request file path > URL.
         raw_request = self.query_one("#request", TextArea).text.strip()
+        req_path = self._get("req_path")
         if raw_request:
             self._req_file = self._write_request_file(raw_request)
             argv += ["-r", self._req_file]
+        elif req_path:
+            if not os.path.isfile(req_path):
+                raise ValueError(f"Request file not found: {req_path}")
+            argv += ["-r", req_path]
         else:
             url = self._get("url")
             if not url:
                 raise ValueError(
-                    "Provide a target URL, or paste a raw HTTP request.")
+                    "Provide a target URL, paste a request, or give a "
+                    "request file path.")
             if any(c in url for c in "\n\r\x00"):
                 raise ValueError("Invalid characters in URL.")
             argv += ["-u", url]

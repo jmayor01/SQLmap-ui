@@ -62,6 +62,12 @@ SQLMAP_PATH="python /opt/sqlmap/sqlmap.py" python3 sqlmap_ui.py
 The pasted request is saved to a temporary file (with the CRLF line endings
 sqlmap expects), passed as `-r`, and deleted automatically when the scan ends.
 
+**Paste not working?** Terminal paste is finicky — run the app in **Windows
+Terminal** (not the legacy `cmd.exe` console), click inside the box first, then
+paste with **Ctrl+V** or **right-click**. If it still won't cooperate, save the
+request to a `.txt` file and use the **"…or load the request from a saved
+file"** field instead — that avoids terminal paste entirely.
+
 Output streams in the right-hand pane as sqlmap runs. The exact command is shown
 above the log so you can see — and learn — the flags being used.
 
