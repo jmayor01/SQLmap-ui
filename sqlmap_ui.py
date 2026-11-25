@@ -229,6 +229,9 @@ class SqlmapUI(App):
     }
     #cmd_edit { display: none; margin: 0 1; border: tall $accent; }
     #log { padding: 0 1; }
+    #prompt { display: none; height: auto; padding: 0 1; color: $warning;
+              text-style: bold; background: $panel; }
+    #answer { display: none; margin: 0 1; border: tall $warning; }
     #status { height: 1; padding: 0 1; background: $panel-darken-1; }
     #buttons { height: auto; padding: 1 1; align: left middle; }
     #buttons Button { margin-right: 1; }
@@ -305,6 +308,11 @@ class SqlmapUI(App):
                 value="auto-detect", id="dbms", allow_blank=False,
             )
 
+            yield Static("PROMPTS")
+            yield Checkbox("Auto-answer prompts (--batch)", True, id="chk_batch")
+            yield Static("Uncheck to answer sqlmap's questions yourself.",
+                         classes="hint")
+
             with Vertical(id="actions"):
                 yield Static("ACTIONS")
                 for key, label in BOOL_LABELS.items():
@@ -328,6 +336,9 @@ class SqlmapUI(App):
                         id="cmd_edit")
             yield RichLog(id="log", highlight=True, markup=True, wrap=True,
                           auto_scroll=True)
+            yield Static("", id="prompt")
+            yield Input(placeholder="type your answer and press Enter",
+                        id="answer")
             yield Static("", id="status")
             with Horizontal(id="buttons"):
                 yield Button("▶ Run  (Ctrl+R)", id="run", variant="primary")
@@ -354,6 +365,8 @@ class SqlmapUI(App):
                       "sqlmap binary and restart.")
             self.query_one("#run", Button).disabled = True
         self.query_one("#cmd_edit", Input).display = False
+        self.query_one("#prompt", Static).display = False
+        self.query_one("#answer", Input).display = False
         self.set_interval(0.5, self._tick)
         self._update_preview()
         self._update_status()
@@ -410,7 +423,9 @@ class SqlmapUI(App):
             except ValueError as exc:
                 raise ValueError(f"Could not parse extra options: {exc}")
 
-        argv.append("--batch")  # never block on interactive prompts
+        # --batch auto-answers prompts. Omit it to answer them manually.
+        if self._checked("batch") and "--batch" not in argv:
+            argv.append("--batch")
         return argv
 
     def _target_args(self, *, for_preview: bool) -> list[str]:
@@ -562,21 +577,30 @@ class SqlmapUI(App):
             return
 
         self._save_config()
+        interactive = "--batch" not in argv  # manual mode: answer prompts yourself
         shown = " ".join(shlex.quote(a) for a in argv)
         self.query_one("#cmdline", Static).update(f"[dim]$ {shown}[/]")
         self._log(f"\n[cyan]▶ launching:[/] {shown}\n", f"$ {shown}")
+        if interactive:
+            self._log("[yellow]Manual mode: when sqlmap asks a question, type "
+                      "your answer below and press Enter.[/]", None)
+            ans = self.query_one("#answer", Input)
+            ans.display = True
+            ans.value = ""
+            ans.focus()
         self.query_one("#run", Button).disabled = True
         self.query_one("#stop", Button).disabled = False
         self._stop = False
         self._scan_start = time.time()
-        self.run_sqlmap(argv)
+        self.run_sqlmap(argv, interactive)
 
     @work(thread=True, exclusive=True)
-    def run_sqlmap(self, argv: list[str]) -> None:
+    def run_sqlmap(self, argv: list[str], interactive: bool = False) -> None:
         try:
             kwargs = dict(
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, bufsize=1, universal_newlines=True,
+                stdin=(subprocess.PIPE if interactive else subprocess.DEVNULL),
+                bufsize=1, universal_newlines=True,
             )
             if os.name == "nt":
                 kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -591,14 +615,61 @@ class SqlmapUI(App):
             return
 
         assert self.proc.stdout is not None
-        for raw in self.proc.stdout:
-            self.call_from_thread(self._write_line, raw.rstrip("\n"))
+        if interactive:
+            self._read_interactive()
+        else:
+            for raw in self.proc.stdout:
+                self.call_from_thread(self._write_line, raw.rstrip("\n"))
         self.proc.wait()
         self.call_from_thread(self._scan_finished, self.proc.returncode)
+
+    def _read_interactive(self) -> None:
+        """Read output char-by-char so prompts without a newline still show."""
+        buf = ""
+        read = self.proc.stdout.read
+        while True:
+            ch = read(1)
+            if ch == "":
+                if buf:
+                    self.call_from_thread(self._write_line, buf)
+                break
+            if ch == "\n":
+                self.call_from_thread(self._write_line, buf)
+                buf = ""
+            elif ch == "\r":
+                continue
+            else:
+                buf += ch
+                # Surface a pending prompt (line that hasn't ended yet).
+                if buf.rstrip().endswith(("]", "?", ":", ">")):
+                    self.call_from_thread(self._set_prompt, buf)
+
+    def _set_prompt(self, text: str) -> None:
+        p = self.query_one("#prompt", Static)
+        p.display = True
+        p.update(f"⟶ {text}")
 
     def _write_line(self, line: str) -> None:
         self.query_one("#log", RichLog).write(colorize(line))
         self._raw_lines.append(line)
+        # A full line ended, so any pending prompt is resolved.
+        self.query_one("#prompt", Static).update("")
+
+    @on(Input.Submitted, "#answer")
+    def _send_answer(self, event: Input.Submitted) -> None:
+        answer = event.value
+        if not (self.proc and self.proc.poll() is None and self.proc.stdin):
+            return
+        try:
+            self.proc.stdin.write(answer + "\n")
+            self.proc.stdin.flush()
+        except (OSError, ValueError):
+            self._log("[red]Couldn't send the answer (process not accepting "
+                      "input).[/]", None)
+            return
+        self._log(f"[blue]> {answer or '(enter)'}[/]", f"> {answer}")
+        self.query_one("#answer", Input).value = ""
+        self.query_one("#prompt", Static).update("")
 
     def _scan_finished(self, code: int | None) -> None:
         el = time.time() - self._scan_start if self._scan_start else 0
@@ -615,6 +686,8 @@ class SqlmapUI(App):
             self._update_status(f"[yellow]exit {code}[/] after {el:0.0f}s")
         self.query_one("#run", Button).disabled = not bool(resolve_sqlmap_cmd())
         self.query_one("#stop", Button).disabled = True
+        self.query_one("#answer", Input).display = False
+        self.query_one("#prompt", Static).display = False
         self.proc = None
         self._scan_start = None
         self._cleanup_request_file()
@@ -747,11 +820,17 @@ class SqlmapUI(App):
                         data["checks"][key])
                 except Exception:
                     pass
+        if "batch" in data:
+            try:
+                self.query_one("#chk_batch", Checkbox).value = bool(data["batch"])
+            except Exception:
+                pass
 
     def _save_config(self) -> None:
         data = {key: self._get(key) for key in SAVED_INPUTS}
         data["dbms"] = self.query_one("#dbms", Select).value
         data["checks"] = {key: self._checked(key) for key in BOOL_FLAGS}
+        data["batch"] = self._checked("batch")
         try:
             CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError:

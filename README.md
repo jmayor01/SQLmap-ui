@@ -9,6 +9,7 @@ no web server. Runs in any terminal (or as a standalone `.exe`).
 - One-click **scan presets** (Quick / Standard / Enum / Full)
 - **Never deletes data** — blocks destructive SQL and OS/SQL shells
 - **Edit the full command** by hand before running — total control
+- **Auto-answer (`--batch`) or manual** — answer sqlmap's prompts yourself
 - **Live command preview** — see the exact sqlmap command as you change options
 - Paste a **raw HTTP request** (Burp/ZAP) or load it from a file (`-r`)
 - **Clipboard paste & copy** that work even where terminal `Ctrl+V` doesn't
@@ -85,6 +86,15 @@ Reading data is allowed: the presets enumerate structure and can read password
 hashes (for cracking), and `--dump` remains available as a manual checkbox.
 sqlmap never deletes data on its own; this guard stops you from supplying a
 statement that would.
+
+### Answering prompts: auto vs. manual
+
+By default **Auto-answer prompts (`--batch`)** is on, so sqlmap takes its
+default answer to every question and never blocks. **Uncheck it** to answer
+yourself: when sqlmap asks something, the question appears above an answer box
+at the bottom of the output — type your reply and press **Enter** (just Enter
+accepts sqlmap's default). In the editable-command mode, simply include or omit
+`--batch` to choose. The setting is remembered between runs.
 
 ### Full manual control — edit the command
 
